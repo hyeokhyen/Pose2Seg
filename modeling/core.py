@@ -4,7 +4,10 @@ import cv2
 import json
 import math
 
-import lib.transforms as translib
+try:
+    import lib.transforms as translib
+except:
+    import Pose2Seg.lib.transforms as translib
 
 def pose_affinematrix(src_kpt, dst_kpt, dst_area, hard=False):
     ''' `dst_kpt` is the template. 

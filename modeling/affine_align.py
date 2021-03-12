@@ -19,7 +19,7 @@ Example:
     Hs = calcAffineMatrix(H_feat, W_feat, keypoints, align_size, template_size, Haug)
     features_roi = affine_align_gpu(features_var, indexs, align_size, Hs)
 '''
-def affine_align_gpu(features, idxs, align_size, Hs):
+def affine_align_gpu(features, idxs, align_size, Hs, device):
     
     def _transform_matrix(Hs, w, h):
         _Hs = np.zeros(Hs.shape, dtype = np.float32)
@@ -40,11 +40,11 @@ def affine_align_gpu(features, idxs, align_size, Hs):
     feature_select = features[idxs] # (N, feature_channel, feature_size, feature_size)
     # transform coordinate system
     Hs_new = _transform_matrix(Hs[:, 0:2, :], w=W_feat, h=H_feat) # return (N, 2, 3)
-    Hs_var = Variable(torch.from_numpy(Hs_new).cuda(), requires_grad=False)
+    Hs_var = Variable(torch.from_numpy(Hs_new).to(device), requires_grad=False)
     ## theta (Variable) – input batch of affine matrices (N x 2 x 3)
     ## size (torch.Size) – the target output image size (N x C x H x W) 
     ## output Tensor of size (N x H x W x 2)
-    flow = F.affine_grid(theta=Hs_var, size=(N, C_feat, H_feat, W_feat)).float().cuda()
+    flow = F.affine_grid(theta=Hs_var, size=(N, C_feat, H_feat, W_feat)).float().to(device)
     flow = flow[:,:align_size[0], :align_size[1], :]
     ## input (Variable) – input batch of images (N x C x IH x IW)
     ## grid (Variable) – flow-field of size (N x OH x OW x 2)

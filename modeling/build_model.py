@@ -11,20 +11,32 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-import lib.transforms as translib
-from lib.timer import Timers
+try:
+    import lib.transforms as translib
+    from lib.timer import Timers
 
-from modeling.resnet import resnet50FPN
-from modeling.affine_align import affine_align_gpu
-from modeling.seg_module import resnet10units
-from modeling.core import PoseAlign
-from modeling.skeleton_feat import genSkeletons
+    from modeling.resnet import resnet50FPN
+    from modeling.affine_align import affine_align_gpu
+    from modeling.seg_module import resnet10units
+    from modeling.core import PoseAlign
+    from modeling.skeleton_feat import genSkeletons
+except:
+    import Pose2Seg.lib.transforms as translib
+    from Pose2Seg.lib.timer import Timers
+
+    from Pose2Seg.modeling.resnet import resnet50FPN
+    from Pose2Seg.modeling.affine_align import affine_align_gpu
+    from Pose2Seg.modeling.seg_module import resnet10units
+    from Pose2Seg.modeling.core import PoseAlign
+    from Pose2Seg.modeling.skeleton_feat import genSkeletons
 
 timers = Timers()
 
 class Pose2Seg(nn.Module):
-    def __init__(self):
+    def __init__(self, device):
         super(Pose2Seg, self).__init__()
+        self.device = device
+
         self.MAXINST = 8
         ## size origin ->(m1)-> input ->(m2)-> feature ->(m3)-> align ->(m4)-> output
         self.size_input = 512
@@ -44,16 +56,17 @@ class Pose2Seg(nn.Module):
         mean = (0.485, 0.456, 0.406)
         std = (0.229, 0.224, 0.225)
         self.mean = np.ones((self.size_input, self.size_input, 3)) * mean
-        self.mean = torch.from_numpy(self.mean.transpose(2, 0, 1)).cuda(0).float()
+        self.mean = torch.from_numpy(self.mean.transpose(2, 0, 1)).to(device).float()
         
         self.std = np.ones((self.size_input, self.size_input, 3)) * std
-        self.std = torch.from_numpy(self.std.transpose(2, 0, 1)).cuda(0).float()
+        self.std = torch.from_numpy(self.std.transpose(2, 0, 1)).to(device).float()
         self.visCount = 0
+        self.device = device
         
         pass
     
     def init(self, path):
-        pretrained_dict = torch.load(path)
+        pretrained_dict = torch.load(path, map_location=self.device)
         model_dict = self.state_dict()
         pretrained_dict = {k.replace('pose2seg.seg_branch', 'segnet'): v for k, v in pretrained_dict.items() \
                            if 'num_batches_tracked' not in k}
@@ -175,7 +188,7 @@ class Pose2Seg(nn.Module):
         ##                                       std=[0.229, 0.224, 0.225])
         ## Note: input[channel] = (input[channel] - mean[channel]) / std[channel], input is (0,1), not (0,255)
         #########################################################################################################
-        inputs = (torch.from_numpy(self.inputs).cuda(0) / 255.0 - self.mean) / self.std
+        inputs = (torch.from_numpy(self.inputs).to(self.device) / 255.0 - self.mean) / self.std
         [p1, p2, p3, p4] = self.backbone(inputs)
         feature = p1
         
@@ -184,11 +197,11 @@ class Pose2Seg(nn.Module):
         
         rois = affine_align_gpu(feature, indexs, 
                                  (self.size_align, self.size_align), 
-                                 alignHs)
+                                 alignHs, self.device)
 
         if self.cat_skeleton:
             skeletons = np.vstack(self.skeletonFeats)
-            skeletons = torch.from_numpy(skeletons).float().cuda(0)
+            skeletons = torch.from_numpy(skeletons).float().to(0)
             rois = torch.cat((rois, skeletons), 1)
         
         netOutput = self.segnet(rois)
@@ -215,7 +228,7 @@ class Pose2Seg(nn.Module):
         for masks, Matrixs in zip(self.batchmasks, self.maskAlignMatrixs):
             for mask, matrix in zip(masks, Matrixs):
                 gts.append(cv2.warpAffine(mask, matrix[0:2], (self.size_output, self.size_output)))
-        gts = torch.from_numpy(np.array(gts)).long().cuda(0)
+        gts = torch.from_numpy(np.array(gts)).long().to(self.device)
         
         loss = mask_loss_func(netOutput, gts)
         return loss
