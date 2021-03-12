@@ -1,3 +1,5 @@
+demo/
+imagenet_pretrain/
 *.pyc
 *.so
 *.pkl
